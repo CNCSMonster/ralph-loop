@@ -1,0 +1,419 @@
+#!/bin/bash
+
+# Ralph Loop - 极简自动化开发循环
+# 用法: ./ralph-loop init     初始化项目结构
+#       ./ralph-loop run [N]  启动循环（N=最大迭代次数，默认50）
+
+set -e
+
+PROMPT_FILE="PROMPT.md"
+RALPH_DIR=".ralph"
+DOCS_DIR="$RALPH_DIR/docs"
+CONSTRAINTS_FILE="$RALPH_DIR/constraints.md"
+PLAN_FILE="$RALPH_DIR/plan.md"
+PROGRESS_FILE="$RALPH_DIR/progress.md"
+VERIFY_FILE="$RALPH_DIR/verify.md"
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+log()  { echo -e "${BLUE}[ralph-loop]${NC} $1"; }
+ok()   { echo -e "${GREEN}[✓]${NC} $1"; }
+warn() { echo -e "${YELLOW}[!]${NC} $1"; }
+err()  { echo -e "${RED}[✗]${NC} $1"; }
+
+# 初始化项目结构（幂等，不会覆盖已有文件）
+cmd_init() {
+    log "初始化 Ralph Loop 项目结构..."
+
+    mkdir -p "$RALPH_DIR" "$DOCS_DIR"
+
+    if [ ! -f "$CONSTRAINTS_FILE" ]; then
+        cat > "$CONSTRAINTS_FILE" << 'EOF'
+# Ralph Loop 约束文件
+
+**警告：此文件定义了 Ralph Loop 的工作规则，AI Agent 必须严格遵守，不得修改此文件。**
+
+## 核心规则
+
+### 1. 工作流程
+
+每次启动时，你必须按以下顺序执行：
+
+```
+1. 读取 PROMPT.md（需求文档）
+2. 读取 .ralph/constraints.md（约束规则，禁止修改）
+3. 读取 .ralph/plan.md（当前计划）
+4. 判断计划是否需要调整：
+   - 如果需要 → 调整 .ralph/plan.md
+   - 如果不需要 → 选择下一个任务
+5. 从 plan.md 中选择下一个未完成的高优先级任务
+6. 实现该任务
+7. 运行测试/验证
+8. 更新 .ralph/plan.md（标记任务 passes:true/false）
+9. 更新 .ralph/progress.md（记录本次迭代做了什么）
+10. 如果所有任务都 passes:true，进入验证阶段
+11. 如果验证次数达到 3 次，输出 <promise>COMPLETE</promise>
+12. 提交代码变更
+```
+
+### 2. 状态文件管理
+
+**.ralph/plan.md** - 计划与任务状态（核心文件）
+- 每次必须读取此文件
+- 首先判断计划是否需要调整，需要则修改
+- 任务状态通过行内标记追踪，格式：
+  `- [ ] task-001 任务描述 (priority:1, passes:false)`
+  `- [x] task-002 已完成 (priority:2, passes:true)`
+- `[ ]` = 未完成，`[x]` = 完成
+- `passes:false/true` = 验证是否通过
+- 如果需要写子任务 spec，存入 `.ralph/docs/` 目录
+
+**.ralph/progress.md** - 进度记忆
+- 每次迭代追加记录
+- 包含：本次做了什么、发现了什么、学到了什么
+
+**.ralph/verify.md** - 验证记录
+- 记录验证次数和结果
+- 每次验证后更新验证次数
+
+### 3. plan.md 格式约定
+
+你必须遵守以下格式，以便脚本能解析任务状态：
+
+```markdown
+# 工作计划
+
+## 需求分析
+简要分析需求...
+
+## 任务列表
+- [ ] task-001 用户登录 (priority:1, passes:false)
+- [x] task-002 数据库 (priority:2, passes:true)
+
+## 调整历史
+...
+```
+
+**关键约定**：
+- 任务行必须以 `- [ ]` 或 `- [x]` 开头
+- 任务 ID 格式为 `task-NNN`
+- 括号内必须包含 `priority:N` 和 `passes:true/false`
+- 脚本通过正则 `passes:(true|false)` 统计状态
+
+### 4. 任务选择策略
+
+- 从 `.ralph/plan.md` 中选择 `passes:false` 且 `[ ]` 的任务
+- 优先选择 `priority` 数值最小的（优先级最高）
+- 如果多个任务优先级相同，选择 ID 最小的
+
+### 5. 验证规则
+
+- 每次完成任务后，必须运行项目的测试/验证命令
+- 验证结果记录到 `.ralph/verify.md`，格式如下：
+
+**验证通过时**：
+```
+验证通过: yes
+发现问题: 无
+```
+并将验证次数 +1（修改 `验证次数: N/3` 中的 N）。
+
+**验证失败时**：
+```
+验证通过: no
+发现问题: {具体问题描述}
+```
+并将验证次数**归零**（修改 `验证次数: N/3` 为 `验证次数: 0/3`），保持任务 `passes:false`。
+
+**你需要自行判断何时调整计划**：
+- 如果验证失败，你需要分析问题，在 `.ralph/plan.md` 中调整后续计划
+- 脚本不会替你决定是否需要调整计划，这是你的职责
+
+### 6. 完成信号
+
+当满足以下条件时，输出 `<promise>COMPLETE</promise>`：
+- `.ralph/plan.md` 中所有任务 `passes:true`
+- 或 `.ralph/verify.md` 中验证次数达到 3 次
+
+### 7. 代码提交
+
+- 每次迭代完成后，必须提交代码变更
+- 提交信息格式：`[ralph-loop] 完成任务: {任务标题} (迭代 #{N})`
+
+## 禁止行为
+
+- ❌ 不得修改 `.ralph/constraints.md`
+- ❌ 不得跳过状态文件的读取和更新
+- ❌ 不得在一次迭代中尝试完成多个任务
+- ❌ 不得在没有运行验证的情况下标记任务为 passes:true
+- ❌ 不得忽略验证次数的计数
+- ❌ 不得违反 plan.md 格式约定（否则脚本无法统计）
+
+## 文件权限说明
+
+| 文件 | 用途 | AI 是否可修改 |
+|------|------|--------------|
+| `.ralph/constraints.md` | 约束规则 | ❌ 禁止 |
+| `.ralph/plan.md` | 计划与任务状态 | ✅ 必须更新 |
+| `.ralph/progress.md` | 进度记录 | ✅ 必须更新 |
+| `.ralph/verify.md` | 验证记录 | ✅ 必须更新 |
+| `.ralph/docs/` | 子任务 spec | ✅ 可选创建 |
+| `PROMPT.md` | 需求说明 | ❌ 只读 |
+EOF
+        ok "$CONSTRAINTS_FILE"
+    else
+        warn "$CONSTRAINTS_FILE 已存在，跳过"
+    fi
+
+    if [ ! -f "$PLAN_FILE" ]; then
+        cat > "$PLAN_FILE" << 'EOF'
+# 工作计划
+
+## 需求分析
+
+<!-- AI 启动后首先根据 PROMPT.md 分析需求，写入此处 -->
+
+## 任务列表
+
+<!-- AI 分解任务，格式必须遵守：
+- [ ] task-001 任务描述 (priority:1, passes:false)
+- [x] task-002 已完成 (priority:2, passes:true)
+-->
+
+## 调整历史
+
+EOF
+        ok "$PLAN_FILE"
+    else
+        warn "$PLAN_FILE 已存在，跳过"
+    fi
+
+    if [ ! -f "$PROGRESS_FILE" ]; then
+        cat > "$PROGRESS_FILE" << 'EOF'
+# 进度记录
+
+## 迭代日志
+
+EOF
+        ok "$PROGRESS_FILE"
+    else
+        warn "$PROGRESS_FILE 已存在，跳过"
+    fi
+
+    if [ ! -f "$VERIFY_FILE" ]; then
+        cat > "$VERIFY_FILE" << 'EOF'
+# 验证记录
+
+## 验证次数: 0/3
+
+## 验证日志
+
+EOF
+        ok "$VERIFY_FILE"
+    else
+        warn "$VERIFY_FILE 已存在，跳过"
+    fi
+
+    echo ""
+    ok "初始化完成"
+}
+
+# 检查是否已初始化
+check_initialized() {
+    if [ ! -f "$PROMPT_FILE" ]; then
+        err "PROMPT.md 不存在，请先编写需求文档"
+        exit 1
+    fi
+    if [ ! -f "$CONSTRAINTS_FILE" ]; then
+        err "项目未初始化，请先运行: ralph-loop init"
+        exit 1
+    fi
+    if [ ! -f "$PLAN_FILE" ] || [ ! -f "$PROGRESS_FILE" ] || [ ! -f "$VERIFY_FILE" ]; then
+        err "状态文件不完整，请检查项目结构"
+        exit 1
+    fi
+}
+
+# 构建 prompt
+build_prompt() {
+    local iteration=$1
+    local max=$2
+    cat << EOF
+你是一个 Ralph Loop AI Agent。
+
+请严格遵守以下约束规则（禁止修改 .ralph/constraints.md）：
+$(cat "$CONSTRAINTS_FILE")
+
+---
+
+当前是第 $iteration 次迭代（上限 $max）。
+
+需求文档：
+$(cat "$PROMPT_FILE")
+
+---
+
+请按照约束规则执行任务。
+EOF
+}
+
+# 获取任务统计（从 plan.md 正则提取）
+get_task_stats() {
+    if [ ! -f "$PLAN_FILE" ]; then
+        echo "0 0 0"
+        return
+    fi
+
+    local total done_count pending_count
+
+    # 统计 passes:true 的行数
+    done_count=$(grep -c 'passes:true' "$PLAN_FILE" 2>/dev/null || echo "0")
+    # 统计 passes:false 的行数
+    pending_count=$(grep -c 'passes:false' "$PLAN_FILE" 2>/dev/null || echo "0")
+    total=$((done_count + pending_count))
+
+    echo "$total $done_count $pending_count"
+}
+
+# 检查是否完成（规则判断）
+check_complete() {
+    read -r total done_count pending_count <<< "$(get_task_stats)"
+
+    # 规则1: 有任务且全部 passes:true
+    if [ "$total" -gt 0 ] && [ "$pending_count" -eq 0 ]; then
+        return 0
+    fi
+
+    # 规则2: 验证次数 >= 3
+    local verify_count=$(get_verify_count)
+    if [ "$verify_count" -ge 3 ]; then
+        return 0
+    fi
+
+    return 1
+}
+
+# 获取验证次数
+get_verify_count() {
+    grep -oP '验证次数: \K[0-9]+' "$VERIFY_FILE" 2>/dev/null || echo "0"
+}
+
+# 启动循环
+cmd_run() {
+    local max=${1:-50}
+    local iteration=0
+
+    check_initialized
+
+    log "Ralph Loop 启动 (最大迭代次数: $max)"
+    echo ""
+
+    while [ $iteration -lt $max ]; do
+        iteration=$((iteration + 1))
+        log "========== 迭代 $iteration/$max =========="
+
+        build_prompt "$iteration" "$max" > /tmp/ralph-prompt.txt
+
+        log "运行 qwen (迭代 $iteration/$max)..."
+
+        cat /tmp/ralph-prompt.txt | qwen --yolo
+
+        # 规则: 全部通过 或 验证3次 → 结束
+        if check_complete; then
+            ok "所有任务已完成！"
+            exit 0
+        fi
+    done
+
+    warn "达到最大迭代次数 ($max)"
+    exit 1
+}
+
+# 显示帮助
+cmd_help() {
+    echo "用法:"
+    echo "  ralph-loop init          初始化项目结构（幂等，不覆盖已有文件）"
+    echo "  ralph-loop run [N]       启动循环，N 为最大迭代次数（默认 50）"
+    echo "  ralph-loop status        生成状态分析 prompt，交给 qwen-code 分析"
+    echo "  ralph-loop help          显示此帮助"
+    echo ""
+    echo "文件:"
+    echo "  PROMPT.md                  需求文档（你需要编写的唯一文件）"
+    echo "  .ralph/constraints.md      AI 约束规则（自动生成，禁止修改）"
+    echo "  .ralph/plan.md             计划与任务状态（AI 更新）"
+    echo "  .ralph/progress.md         进度记录（AI 更新）"
+    echo "  .ralph/verify.md           验证记录（AI 更新）"
+    echo "  .ralph/docs/               子任务 spec（AI 可选）"
+}
+
+# 显示状态
+cmd_status() {
+    check_initialized
+
+    read -r total done_count pending_count <<< "$(get_task_stats)"
+
+    cat > /tmp/ralph-status-prompt.txt << PROMPT
+你是一个 Ralph Loop 状态分析助手。请读取以下文件内容，分析当前项目状态。
+
+## 约束规则（.ralph/constraints.md）
+$(cat "$CONSTRAINTS_FILE")
+
+---
+
+## 当前任务统计
+- 总任务数: $total
+- 已完成: $done_count
+- 待完成: $pending_count
+
+## 计划（.ralph/plan.md）
+$(cat "$PLAN_FILE")
+
+## 进度记录（.ralph/progress.md）
+$(cat "$PROGRESS_FILE")
+
+## 验证记录（.ralph/verify.md）
+$(cat "$VERIFY_FILE")
+
+---
+
+请分析：
+1. 当前处于哪个阶段（计划中/执行中/验证中/已完成）
+2. 任务完成度（$done_count/$total）
+3. 验证次数（当前 $(get_verify_count)/3）
+4. 下一步应该做什么
+5. 是否有任何问题或阻塞
+PROMPT
+
+    log "状态分析 Prompt 已生成到 /tmp/ralph-status-prompt.txt"
+    echo ""
+    log "运行 qwen 分析状态..."
+    echo ""
+
+    cat /tmp/ralph-status-prompt.txt | qwen --yolo
+    echo ""
+}
+
+# 路由命令
+case "${1:-help}" in
+    init)
+        cmd_init
+        ;;
+    run)
+        cmd_run "${2:-50}"
+        ;;
+    status)
+        cmd_status
+        ;;
+    help|--help|-h)
+        cmd_help
+        ;;
+    *)
+        err "未知命令: $1"
+        cmd_help
+        exit 1
+        ;;
+esac
