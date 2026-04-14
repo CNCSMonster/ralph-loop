@@ -24,7 +24,7 @@
 ## 任务列表
 
 - [x] task-001 补充 README.md 最佳实践章节 (priority:1, passes:true)
-- [ ] task-002 增强测试用例覆盖边界情况 (priority:2, passes:false)
+- [x] task-002 增强测试用例覆盖边界情况 (priority:2, passes:true)
 - [ ] task-003 验证并修复 init 后 status 统计逻辑 (priority:3, passes:false)
 - [ ] task-004 最终全量测试验证 (priority:4, passes:false)
 

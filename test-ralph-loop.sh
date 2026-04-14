@@ -202,6 +202,114 @@ test_plan_format() {
     fi
 }
 
+test_unknown_command() {
+    cd "$TEST_DIR"
+
+    TOTAL_COUNT=$((TOTAL_COUNT + 1))
+    local output
+    local exit_code=0
+    output=$(./ralph-loop unknown 2>&1) || exit_code=$?
+
+    if [ "$exit_code" -eq 1 ] && echo "$output" | grep -q "未知命令"; then
+        pass "unknown - 未知命令返回错误"
+    else
+        fail "unknown - 未知命令处理不正确 (exit=$exit_code)" "$output"
+    fi
+}
+
+test_task_stats_with_tasks() {
+    cd "$TEST_DIR"
+    ./ralph-loop init > /dev/null 2>&1
+
+    # 添加一些任务到 plan.md
+    cat >> .ralph/plan.md << 'EOF'
+- [ ] task-001 测试任务1 (priority:1, passes:false)
+- [x] task-002 测试任务2 (priority:2, passes:true)
+- [ ] task-003 测试任务3 (priority:3, passes:false)
+EOF
+
+    ./ralph-loop status > /dev/null 2>&1
+
+    TOTAL_COUNT=$((TOTAL_COUNT + 1))
+    local total done pending
+    read -r total done pending <<< $(grep -E '总任务数:|已完成:|待完成:' /tmp/ralph-status-prompt.txt 2>/dev/null | \
+        sed 's/.*: //' | tr '\n' ' ')
+
+    if [ "$total" = "3" ] && [ "$done" = "1" ] && [ "$pending" = "2" ]; then
+        pass "task_stats - 有任务时统计正确 (3/1/2)"
+    else
+        fail "task_stats - 统计错误 (total=$total, done=$done, pending=$pending)"
+    fi
+}
+
+test_verify_count_reset() {
+    cd "$TEST_DIR"
+    ./ralph-loop init > /dev/null 2>&1
+
+    # 模拟验证次数为 2
+    sed -i 's/验证次数: 0\/3/验证次数: 2\/3/' .ralph/verify.md
+
+    TOTAL_COUNT=$((TOTAL_COUNT + 1))
+    local count
+    count=$(grep -oP '验证次数: \K[0-9]+' .ralph/verify.md)
+
+    if [ "$count" = "2" ]; then
+        pass "verify_count - 初始值为 2"
+    else
+        fail "verify_count - 初始值设置失败 (实际=$count)"
+    fi
+
+    # 模拟验证失败，次数应归零
+    sed -i 's/验证次数: 2\/3/验证次数: 0\/3/' .ralph/verify.md
+
+    TOTAL_COUNT=$((TOTAL_COUNT + 1))
+    count=$(grep -oP '验证次数: \K[0-9]+' .ralph/verify.md)
+
+    if [ "$count" = "0" ]; then
+        pass "verify_count - 失败后归零"
+    else
+        fail "verify_count - 归零失败 (实际=$count)"
+    fi
+}
+
+test_init_multiple_times() {
+    cd "$TEST_DIR"
+
+    # 连续初始化 3 次，验证幂等性
+    ./ralph-loop init > /dev/null 2>&1
+    local mtime1=$(stat -c %Y .ralph/plan.md)
+    sleep 1
+    ./ralph-loop init > /dev/null 2>&1
+    local mtime2=$(stat -c %Y .ralph/plan.md)
+    sleep 1
+    ./ralph-loop init > /dev/null 2>&1
+    local mtime3=$(stat -c %Y .ralph/plan.md)
+
+    TOTAL_COUNT=$((TOTAL_COUNT + 1))
+    if [ "$mtime1" -eq "$mtime2" ] && [ "$mtime2" -eq "$mtime3" ]; then
+        pass "init - 多次初始化保持幂等"
+    else
+        fail "init - 多次初始化破坏幂等性 (mtime1=$mtime1, mtime2=$mtime2, mtime3=$mtime3)"
+    fi
+}
+
+test_check_initialized_missing_prompt() {
+    cd "$TEST_DIR"
+    rm -f PROMPT.md  # 删除 PROMPT.md
+    ./ralph-loop init > /dev/null 2>&1  # init 不需要 PROMPT.md
+
+    TOTAL_COUNT=$((TOTAL_COUNT + 1))
+    local output
+    local exit_code=0
+    output=$(./ralph-loop status 2>&1) || exit_code=$?
+
+    if [ "$exit_code" -eq 1 ] && echo "$output" | grep -q "PROMPT.md 不存在"; then
+        pass "check_initialized - 缺少 PROMPT.md 报错"
+    else
+        fail "check_initialized - 缺少 PROMPT.md 处理不正确 (exit=$exit_code)" "$output"
+    fi
+}
+
 # ========== 执行测试 ==========
 
 echo ""
@@ -219,6 +327,11 @@ test_status
 test_status_empty_stats
 test_verify_format
 test_plan_format
+test_unknown_command
+test_task_stats_with_tasks
+test_verify_count_reset
+test_init_multiple_times
+test_check_initialized_missing_prompt
 
 # ========== 输出结果 ==========
 
