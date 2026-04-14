@@ -285,15 +285,12 @@ get_task_stats() {
 check_complete() {
     read -r total done_count pending_count <<< "$(get_task_stats)"
 
-    # 规则1: 有任务且全部 passes:true
+    # 规则: 所有任务 passes:true 且 验证次数 >= 3
     if [ "$total" -gt 0 ] && [ "$pending_count" -eq 0 ]; then
-        return 0
-    fi
-
-    # 规则2: 验证次数 >= 3
-    local verify_count=$(get_verify_count)
-    if [ "$verify_count" -ge 3 ]; then
-        return 0
+        local verify_count=$(get_verify_count)
+        if [ "$verify_count" -ge 3 ]; then
+            return 0
+        fi
     fi
 
     return 1
