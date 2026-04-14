@@ -21,10 +21,11 @@
 - [x] task-001 修复 status 命令统计 bug（priority:1, passes:true）
 - [x] task-002 添加自动化验证/测试机制（priority:1, passes:true）
 - [x] task-003 制定 PROMPT.md 编写规范并写入 README.md（priority:2, passes:true）
-- [ ] task-004 创建 examples/cli-tool/PROMPT.md 示例（priority:2, passes:false）
+- [x] task-004 创建 examples/cli-tool/PROMPT.md 示例（priority:2, passes:true）
 - [ ] task-005 创建 examples/web-app/PROMPT.md 示例（priority:2, passes:false）
 - [ ] task-006 完善 README.md（priority:3, passes:false）
 
 ## 调整历史
 
 - 2026-04-14: 初始计划，根据 PROMPT.md 需求分解任务
+- 2026-04-14 迭代 3: task-003 完成，验证次数达到 3/3，但仍有 task-004/005/006 待完成，继续执行
