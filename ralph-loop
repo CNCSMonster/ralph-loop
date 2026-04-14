@@ -180,8 +180,9 @@ EOF
 ## 任务列表
 
 <!-- AI 分解任务，格式必须遵守：
-- [ ] task-001 任务描述 (priority:1, passes:false)
-- [x] task-002 已完成 (priority:2, passes:true)
+每行以 - [ ] 或 - [x] 开头，包含 task-NNN ID、priority:N 和 passes:true/false
+例如：- [ ] task-001 任务描述 (priority:1, passes:false)
+注意：任务行不能在注释块内，否则脚本无法统计
 -->
 
 ## 调整历史
@@ -270,10 +271,11 @@ get_task_stats() {
 
     local total done_count pending_count
 
-    # 统计 passes:true 的行数
-    done_count=$(grep -c 'passes:true' "$PLAN_FILE" 2>/dev/null || echo "0")
-    # 统计 passes:false 的行数
-    pending_count=$(grep -c 'passes:false' "$PLAN_FILE" 2>/dev/null || echo "0")
+    # 只统计以 - [ ] 或 - [x] 开头的实际任务行（排除注释中的示例）
+    done_count=$(grep -cE '^\s*-\s*\[x\].*passes:true' "$PLAN_FILE" 2>/dev/null || true)
+    pending_count=$(grep -cE '^\s*-\s*\[\s\].*passes:false' "$PLAN_FILE" 2>/dev/null || true)
+    done_count=${done_count:-0}
+    pending_count=${pending_count:-0}
     total=$((done_count + pending_count))
 
     echo "$total $done_count $pending_count"
