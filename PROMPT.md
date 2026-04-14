@@ -41,4 +41,6 @@
 
 ## 提示
 
-1. 项目中存在的bug_report.md中会放置bug记录
+1. 项目中存在的bug_report.md中会放置bug记录,你罗列计划的时候应该考虑解决这个bug
+2. 解决bug后修改bug_report.md中的标记，更新对应bug状态为已解决
+3. 每次改动完成应该commit
