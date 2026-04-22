@@ -160,7 +160,7 @@ test_status_empty_stats() {
     TOTAL_COUNT=$((TOTAL_COUNT + 1))
     # 验证空任务时统计正确
     local total done pending
-    read -r total done pending <<< $(grep -E '总任务数:|已完成:|待完成:' /tmp/ralph-status-prompt.txt 2>/dev/null | \
+    read -r total done pending <<< $(grep -E '子任务总数:|已完成:|待完成:' /tmp/ralph-status-prompt.txt 2>/dev/null | \
         sed 's/.*: //' | tr '\n' ' ')
 
     if [ "$total" = "0" ] && [ "$done" = "0" ] && [ "$pending" = "0" ]; then
@@ -177,7 +177,8 @@ test_verify_format() {
     TOTAL_COUNT=$((TOTAL_COUNT + 1))
     local content
     content=$(cat .ralph/verify.md)
-    if echo "$content" | grep -q "验证次数: 0/3" && \
+    if echo "$content" | grep -q "当前阶段: 子任务执行中" && \
+       echo "$content" | grep -q "验证次数: 0/3" && \
        echo "$content" | grep -q "验证日志"; then
         pass "verify.md - 格式正确"
     else
@@ -193,8 +194,9 @@ test_plan_format() {
     local content
     content=$(cat .ralph/plan.md)
     if echo "$content" | grep -q "工作计划" && \
-       echo "$content" | grep -q "需求分析" && \
-       echo "$content" | grep -q "任务列表" && \
+       echo "$content" | grep -q "总任务" && \
+       echo "$content" | grep -q "子任务分解" && \
+       echo "$content" | grep -q "子任务列表" && \
        echo "$content" | grep -q "调整历史"; then
         pass "plan.md - 模板格式正确"
     else
@@ -221,18 +223,18 @@ test_task_stats_with_tasks() {
     cd "$TEST_DIR"
     ./ralph-loop init > /dev/null 2>&1
 
-    # 添加一些任务到 plan.md
+    # 添加一些子任务到 plan.md
     cat >> .ralph/plan.md << 'EOF'
-- [ ] task-001 测试任务1 (priority:1, passes:false)
-- [x] task-002 测试任务2 (priority:2, passes:true)
-- [ ] task-003 测试任务3 (priority:3, passes:false)
+- [ ] task-001 测试子任务1 (priority:1, passes:false)
+- [x] task-002 测试子任务2 (priority:2, passes:true)
+- [ ] task-003 测试子任务3 (priority:3, passes:false)
 EOF
 
     ./ralph-loop status > /dev/null 2>&1
 
     TOTAL_COUNT=$((TOTAL_COUNT + 1))
     local total done pending
-    read -r total done pending <<< $(grep -E '总任务数:|已完成:|待完成:' /tmp/ralph-status-prompt.txt 2>/dev/null | \
+    read -r total done pending <<< $(grep -E '子任务总数:|已完成:|待完成:' /tmp/ralph-status-prompt.txt 2>/dev/null | \
         sed 's/.*: //' | tr '\n' ' ')
 
     if [ "$total" = "3" ] && [ "$done" = "1" ] && [ "$pending" = "2" ]; then
